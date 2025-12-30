@@ -195,24 +195,6 @@ body.large-board .piece {
   height: 108px;
 }
 
-/* Animated pieces in container */
-.animated-piece {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 5;
-}
-
-.animated-piece img {
-  width: 90%;
-  height: 90%;
-  object-fit: contain;
-}
-
-#pieces-container {
-  z-index: 5;
-}
-
 .pig-knight {
   font-size: 80px;
   line-height: 1;

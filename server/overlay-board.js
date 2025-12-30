@@ -19,8 +19,6 @@ let pigKnightSquare = null;
 let previousFen = null;
 let lastMoveStr = null;
 
-// Track piece positions for slide animation
-let previousPiecePositions = new Map(); // piece+square -> {row, col}
 
 // Oink sound for knight captures
 const oinkSound = new Audio('pig-oink.mp3');
@@ -209,7 +207,7 @@ function squareToIndices(square) {
 }
 
 function detectKnightCaptures(fen, lastMove) {
-  if (!lastMove) {
+  if (!lastMove || !lastMove.from || !lastMove.to) {
     previousFen = fen;
     return;
   }
@@ -217,7 +215,11 @@ function detectKnightCaptures(fen, lastMove) {
   const moveStr = lastMove.from + lastMove.to;
 
   // Only process new moves
-  if (moveStr === lastMoveStr) return;
+  if (moveStr === lastMoveStr) {
+    // Still update previousFen in case board changed
+    previousFen = fen;
+    return;
+  }
 
   // Reset pig on any new move
   pigKnightSquare = null;
@@ -225,6 +227,9 @@ function detectKnightCaptures(fen, lastMove) {
   // Parse boards
   const currentBoard = parseFenToBoard(fen);
   const prevBoard = parseFenToBoard(previousFen);
+
+  // Debug logging
+  console.log('Move detected:', moveStr, 'prevFen exists:', !!previousFen);
 
   if (currentBoard && prevBoard) {
     const to = squareToIndices(lastMove.to);
@@ -235,15 +240,23 @@ function detectKnightCaptures(fen, lastMove) {
     // Was there a piece at destination before? (capture)
     const capturedPiece = prevBoard[to.row]?.[to.col];
 
+    console.log('Piece at dest:', pieceAtDest, 'Captured:', capturedPiece, 'Orientation:', currentOrientation);
+
     // Is it a knight that just moved there?
-    if ((pieceAtDest === 'N' || pieceAtDest === 'n') && capturedPiece) {
-      console.log('Knight capture detected!', lastMove.to, pieceAtDest, 'captured', capturedPiece);
+    // Only trigger pig effect for the user's pieces (bottom player)
+    const isMyKnight = (currentOrientation === 'white' && pieceAtDest === 'N') ||
+                       (currentOrientation === 'black' && pieceAtDest === 'n');
+
+    if (isMyKnight && capturedPiece) {
+      console.log('PIG! Knight capture detected!', lastMove.to);
       pigKnightSquare = lastMove.to;
 
       // Play oink
       oinkSound.currentTime = 0;
       oinkSound.play().catch(e => console.log('Audio error:', e));
     }
+  } else {
+    console.log('Missing board state - current:', !!currentBoard, 'prev:', !!prevBoard);
   }
 
   lastMoveStr = moveStr;
@@ -330,6 +343,11 @@ function hideGameResultAnimation() {
 
 function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
   const boardEl = document.getElementById('board');
+  boardEl.innerHTML = '';
+
+  // Remove pieces container if it exists
+  const piecesContainer = document.getElementById('pieces-container');
+  if (piecesContainer) piecesContainer.remove();
 
   // Build set of marked squares for quick lookup
   const markedMap = new Map();
@@ -377,39 +395,17 @@ function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
     ranks.reverse();
   }
 
-  // Build current piece positions map
-  const currentPiecePositions = new Map();
-
-  // Check if we need to rebuild the board (first render or structure change)
-  const needsRebuild = boardEl.children.length !== 64;
-
-  if (needsRebuild) {
-    boardEl.innerHTML = '';
-  }
-
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
+      const square = document.createElement('div');
+
       const actualRow = currentOrientation === 'white' ? row : 7 - row;
       const actualCol = currentOrientation === 'white' ? col : 7 - col;
+
+      const isLight = (actualRow + actualCol) % 2 === 0;
+      square.className = `square ${isLight ? 'light' : 'dark'}`;
+
       const squareName = files[col] + ranks[row];
-      const piece = board[actualRow]?.[actualCol];
-
-      let square;
-      if (needsRebuild) {
-        square = document.createElement('div');
-        const isLight = (actualRow + actualCol) % 2 === 0;
-        square.className = `square ${isLight ? 'light' : 'dark'}`;
-        square.dataset.square = squareName;
-        boardEl.appendChild(square);
-      } else {
-        square = boardEl.children[row * 8 + col];
-        // Clear previous state classes but keep base classes
-        square.className = square.className.replace(/\s*(selected|last-move|marked|king)\s*/g, ' ').trim();
-        // Remove old pieces and hints
-        square.querySelectorAll('.piece, .pig-knight, .hint-dot').forEach(el => el.remove());
-      }
-
-      // Apply square states
       if (squareName === selectedSquare) {
         square.classList.add('selected');
       } else if (lastMoveSquares.has(squareName)) {
@@ -426,109 +422,33 @@ function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
         square.appendChild(hintDot);
       }
 
-      // Track piece position
-      if (piece) {
-        currentPiecePositions.set(squareName, piece);
-      }
-    }
-  }
-
-  // Now render pieces with animation
-  renderPiecesWithAnimation(board, files, ranks, currentPiecePositions, lastMove);
-
-  // Update previous positions for next render
-  previousPiecePositions = currentPiecePositions;
-}
-
-function renderPiecesWithAnimation(board, files, ranks, currentPiecePositions, lastMove) {
-  const boardEl = document.getElementById('board');
-
-  // Get or create pieces container
-  let piecesContainer = document.getElementById('pieces-container');
-  if (!piecesContainer) {
-    piecesContainer = document.createElement('div');
-    piecesContainer.id = 'pieces-container';
-    piecesContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
-    boardEl.style.position = 'relative';
-    boardEl.appendChild(piecesContainer);
-  }
-
-  // Clear old pieces
-  piecesContainer.innerHTML = '';
-
-  // Find the piece that moved (if any)
-  let fromPos = null;
-  let toPos = null;
-
-  if (lastMove) {
-    const piece = currentPiecePositions.get(lastMove.to);
-    if (piece && previousPiecePositions.has(lastMove.from)) {
-      const prevPiece = previousPiecePositions.get(lastMove.from);
-      // Check if same type of piece (accounting for promotion)
-      if (prevPiece && (prevPiece === piece || (prevPiece.toLowerCase() === 'p' && piece !== prevPiece))) {
-        fromPos = lastMove.from;
-        toPos = lastMove.to;
-      }
-    }
-  }
-
-  // Render each piece
-  for (let row = 0; row < 8; row++) {
-    for (let col = 0; col < 8; col++) {
-      const actualRow = currentOrientation === 'white' ? row : 7 - row;
-      const actualCol = currentOrientation === 'white' ? col : 7 - col;
-      const squareName = files[col] + ranks[row];
       const piece = board[actualRow]?.[actualCol];
-
       if (piece && PIECE_IMAGES[piece]) {
+        // Check if this knight just captured (show as pig briefly)
         const isPigKnight = (piece === 'N' || piece === 'n') && pigKnightSquare === squareName;
-        const isMovingPiece = squareName === toPos;
 
-        let pieceEl;
         if (isPigKnight) {
-          pieceEl = document.createElement('span');
-          pieceEl.className = 'piece pig-knight animated-piece';
-          pieceEl.textContent = '🐷';
+          const pigSpan = document.createElement('span');
+          pigSpan.className = 'piece pig-knight';
+          pigSpan.textContent = '🐷';
+          square.appendChild(pigSpan);
         } else {
-          pieceEl = document.createElement('img');
-          pieceEl.className = 'piece animated-piece';
-          pieceEl.src = `${PIECE_BASE_URL}/${PIECE_IMAGES[piece]}`;
-          pieceEl.alt = piece;
-          pieceEl.draggable = false;
+          const pieceImg = document.createElement('img');
+          pieceImg.className = 'piece';
+          pieceImg.src = `${PIECE_BASE_URL}/${PIECE_IMAGES[piece]}`;
+          pieceImg.alt = piece;
+          pieceImg.draggable = false;
+          square.appendChild(pieceImg);
         }
 
-        // Position the piece
-        const targetX = col * SQUARE_SIZE;
-        const targetY = row * SQUARE_SIZE;
-
-        if (isMovingPiece && fromPos) {
-          // Animate from old position to new position
-          const fromCol = files.indexOf(fromPos[0]);
-          const fromRow = ranks.indexOf(fromPos[1]);
-          const startX = fromCol * SQUARE_SIZE;
-          const startY = fromRow * SQUARE_SIZE;
-
-          pieceEl.style.cssText = `position:absolute;left:${startX}px;top:${startY}px;width:${SQUARE_SIZE}px;height:${SQUARE_SIZE}px;transition:left 0.15s ease-out,top 0.15s ease-out;`;
-
-          // Trigger animation after append
-          requestAnimationFrame(() => {
-            pieceEl.style.left = targetX + 'px';
-            pieceEl.style.top = targetY + 'px';
-          });
-        } else {
-          pieceEl.style.cssText = `position:absolute;left:${targetX}px;top:${targetY}px;width:${SQUARE_SIZE}px;height:${SQUARE_SIZE}px;`;
-        }
-
-        piecesContainer.appendChild(pieceEl);
-
-        // Add king class to square
         const isMyKing = (currentOrientation === 'white' && piece === 'K') ||
                          (currentOrientation === 'black' && piece === 'k');
         if (isMyKing) {
-          const square = boardEl.children[row * 8 + col];
-          if (square) square.classList.add('king');
+          square.classList.add('king');
         }
       }
+
+      boardEl.appendChild(square);
     }
   }
 }
