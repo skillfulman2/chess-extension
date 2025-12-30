@@ -125,6 +125,7 @@ body.minimal.players-overlay {
   justify-content: center;
   font-size: var(--piece-size, 60px);
   user-select: none;
+  position: relative;
 }
 
 /* Large board for HD streaming (960px board + 36px eval bar = 996px) */
@@ -179,6 +180,38 @@ body.large-board {
 body.large-board .hint-dot {
   width: 32px;
   height: 32px;
+}
+
+/* Board coordinates */
+.coord {
+  position: absolute;
+  font-size: 12px;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 1;
+}
+
+body.large-board .coord {
+  font-size: 14px;
+}
+
+.coord-file {
+  bottom: 2px;
+  right: 4px;
+}
+
+.coord-rank {
+  top: 2px;
+  left: 4px;
+}
+
+/* Coordinate colors based on square */
+.square.light .coord {
+  color: #b58863;
+}
+
+.square.dark .coord {
+  color: #f0d9b5;
 }
 
 .piece {

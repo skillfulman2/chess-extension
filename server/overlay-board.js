@@ -31,7 +31,9 @@ let stockfishReady = false;
 let currentFen = null;
 let pendingFen = null;
 let isAnalyzing = false;
-let analysisDepth = 18; // Depth for analysis (higher = more accurate but slower)
+let analysisDepth = 22;
+let latestEval = null; // Store latest eval to apply on bestmove
+let analysisFen = null; // Track which position we're analyzing
 
 function initStockfish() {
   try {
@@ -44,26 +46,36 @@ function setupStockfishHandlers() {
   stockfish.onmessage = function(event) {
     const line = typeof event === 'string' ? event : event.data;
 
+    // Store eval scores as they come in (we'll use the last one)
     if (line.includes('score cp')) {
       const match = line.match(/score cp (-?\d+)/);
       if (match) {
         const cp = parseInt(match[1]);
-        const isBlackTurn = currentFen && currentFen.includes(' b ');
+        const isBlackTurn = analysisFen && analysisFen.includes(' b ');
         const normalizedCp = isBlackTurn ? -cp : cp;
-        updateEvalBar(normalizedCp / 100, null);
+        latestEval = { type: 'cp', value: normalizedCp / 100 };
+        // Update eval bar in real-time for responsiveness
+        updateEvalBar(latestEval.value, null);
       }
     } else if (line.includes('score mate')) {
       const match = line.match(/score mate (-?\d+)/);
       if (match) {
         let mateIn = parseInt(match[1]);
-        const isBlackTurn = currentFen && currentFen.includes(' b ');
+        const isBlackTurn = analysisFen && analysisFen.includes(' b ');
         if (isBlackTurn) mateIn = -mateIn;
+        latestEval = { type: 'mate', value: mateIn };
         updateEvalBar(null, mateIn);
       }
     }
 
     if (line.includes('bestmove')) {
       isAnalyzing = false;
+      // Check if there's a new position waiting
+      if (pendingFen && pendingFen !== analysisFen) {
+        const fen = pendingFen;
+        pendingFen = null;
+        analyzePosition(fen);
+      }
     }
 
     if (line.includes('readyok')) {
@@ -90,14 +102,20 @@ function analyzePosition(fen) {
     return;
   }
 
-  currentFen = fen;
-  stockfish.postMessage('stop');
+  // If already analyzing, queue this position
+  if (isAnalyzing) {
+    pendingFen = fen;
+    stockfish.postMessage('stop');
+    return;
+  }
 
-  setTimeout(() => {
-    stockfish.postMessage('position fen ' + fen);
-    stockfish.postMessage('go depth ' + analysisDepth);
-    isAnalyzing = true;
-  }, 50);
+  analysisFen = fen;
+  currentFen = fen;
+  latestEval = null;
+
+  stockfish.postMessage('position fen ' + fen);
+  stockfish.postMessage('go depth ' + analysisDepth);
+  isAnalyzing = true;
 }
 
 function updateEvalBar(evalScore, mateIn) {
@@ -284,9 +302,9 @@ function updateBoard(state) {
 
   // Analyze position with Stockfish
   if (state.board && !state.gameResult) {
-    // Construct full FEN string
+    // Construct FEN string (use - for castling since we don't track it)
     const turn = state.turn === 'black' ? 'b' : 'w';
-    const fullFen = `${state.board} ${turn} KQkq - 0 1`;
+    const fullFen = `${state.board} ${turn} - - 0 1`;
 
     // Only analyze if position changed
     if (fullFen !== lastAnalyzedFen) {
@@ -413,6 +431,22 @@ function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
       } else if (markedMap.has(squareName)) {
         square.classList.add('marked');
         square.style.setProperty('--mark-color', markedMap.get(squareName));
+      }
+
+      // Add file letters on bottom row (right corner)
+      if (row === 7) {
+        const fileLabel = document.createElement('span');
+        fileLabel.className = 'coord coord-file';
+        fileLabel.textContent = files[col];
+        square.appendChild(fileLabel);
+      }
+
+      // Add rank numbers on left column (top left corner)
+      if (col === 0) {
+        const rankLabel = document.createElement('span');
+        rankLabel.className = 'coord coord-rank';
+        rankLabel.textContent = ranks[row];
+        square.appendChild(rankLabel);
       }
 
       // Add hint dot for legal moves
