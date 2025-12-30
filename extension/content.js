@@ -123,54 +123,64 @@ function boardToFEN(board) {
 
 function extractPlayers() {
   const players = { white: {}, black: {} };
+  const orientation = extractOrientation();
 
-  // Try multiple selector patterns for player info
-  // Chess.com has different layouts for different game modes
+  // Bottom player is always YOU, top player is always OPPONENT
+  const bottomCard = document.querySelector('#board-layout-player-bottom .player-component');
+  const topCard = document.querySelector('#board-layout-player-top .player-component');
 
-  // Pattern 1: Live game player cards
-  const playerCards = document.querySelectorAll('.player-component');
-  playerCards.forEach(card => {
-    const isBottom = card.closest('.board-layout-bottom') !== null ||
-                     card.classList.contains('player-bottom');
-    const isTop = card.closest('.board-layout-top') !== null ||
-                  card.classList.contains('player-top');
+  if (bottomCard) {
+    const playerInfo = extractPlayerInfo(bottomCard);
+    players[orientation] = playerInfo; // You play this color
+  }
 
-    const nameEl = card.querySelector('.user-username-component, .username, [data-username]');
-    const ratingEl = card.querySelector('.user-rating-component, .rating');
-    const titleEl = card.querySelector('.user-title-component, .title');
+  if (topCard) {
+    const playerInfo = extractPlayerInfo(topCard);
+    players[orientation === 'white' ? 'black' : 'white'] = playerInfo; // Opponent plays opposite color
+  }
 
-    const playerInfo = {
-      name: nameEl?.textContent?.trim() || nameEl?.getAttribute('data-username') || 'Unknown',
-      rating: parseInt(ratingEl?.textContent?.replace(/[()]/g, '')) || null,
-      title: titleEl?.textContent?.trim() || null
-    };
+  return players;
+}
 
-    // Determine color based on position and board orientation
-    const orientation = extractOrientation();
-    if (isBottom) {
-      players[orientation] = playerInfo;
-    } else if (isTop) {
-      players[orientation === 'white' ? 'black' : 'white'] = playerInfo;
-    }
-  });
+function extractPlayerInfo(card) {
+  const nameEl = card.querySelector('.cc-user-username-component, .user-username-component, [data-username]');
+  const ratingEl = card.querySelector('.cc-user-rating-white, .cc-user-rating-black, [data-cy="user-tagline-rating"]');
+  const titleEl = card.querySelector('.cc-user-title-component, .user-title-component');
+  const avatarEl = card.querySelector('.cc-avatar-img, [data-cy="avatar"]');
 
-  // Pattern 2: Try alternative selectors if above didn't work
-  if (!players.white.name || players.white.name === 'Unknown') {
-    const bottomUser = document.querySelector('.board-player-default-bottom .user-username-component');
-    const topUser = document.querySelector('.board-player-default-top .user-username-component');
-
-    if (bottomUser || topUser) {
-      const orientation = extractOrientation();
-      if (bottomUser) {
-        players[orientation].name = bottomUser.textContent?.trim() || 'Unknown';
-      }
-      if (topUser) {
-        players[orientation === 'white' ? 'black' : 'white'].name = topUser.textContent?.trim() || 'Unknown';
+  // Flag is a div with country code in class name (e.g., "country-us" or "country-2")
+  const flagEl = card.querySelector('.country-flags-component');
+  let countryCode = null;
+  if (flagEl) {
+    // Try letter code first (e.g., "country-us")
+    let match = flagEl.className.match(/country-([a-z]{2})\b/);
+    if (match) {
+      countryCode = match[1];
+    } else {
+      // Try numeric code (e.g., "country-2") - exclude "country-flags"
+      match = flagEl.className.match(/country-(\d+)\b/);
+      if (match) {
+        countryCode = match[1];
       }
     }
   }
 
-  return players;
+  const rating = ratingEl?.textContent?.trim().replace(/[()]/g, '');
+
+  console.log('[Chess Overlay] Extracted player:', {
+    name: nameEl?.textContent?.trim(),
+    rating: rating,
+    countryCode: countryCode,
+    avatar: avatarEl?.src
+  });
+
+  return {
+    name: nameEl?.textContent?.trim() || 'Unknown',
+    rating: parseInt(rating) || null,
+    title: titleEl?.textContent?.trim() || null,
+    avatar: avatarEl?.src || null,
+    countryCode: countryCode
+  };
 }
 
 function extractClocks() {
@@ -237,23 +247,21 @@ function extractTurn() {
 }
 
 function extractOrientation() {
-  // Check if board is flipped
-  const board = document.querySelector('.board, .board-layout-chessboard');
+  // Bottom player (#board-layout-player-bottom) is always YOU
+  // Check what color you're playing from the clock or username class
 
-  if (board) {
-    // Chess.com adds 'flipped' class when playing as black
-    if (board.classList.contains('flipped')) {
-      return 'black';
-    }
+  // Check bottom clock's color class
+  const bottomClock = document.querySelector('#board-layout-player-bottom .clock-component');
+  if (bottomClock) {
+    if (bottomClock.classList.contains('clock-white')) return 'white';
+    if (bottomClock.classList.contains('clock-black')) return 'black';
+  }
 
-    // Alternative: check coordinates
-    const coords = document.querySelector('.coordinates-rank');
-    if (coords) {
-      const firstCoord = coords.firstElementChild?.textContent;
-      if (firstCoord === '1') {
-        return 'black';
-      }
-    }
+  // Fallback: check username color class
+  const bottomUsername = document.querySelector('#board-layout-player-bottom .cc-user-username-component');
+  if (bottomUsername) {
+    if (bottomUsername.classList.contains('cc-user-username-white')) return 'white';
+    if (bottomUsername.classList.contains('cc-user-username-black')) return 'black';
   }
 
   return 'white';
@@ -394,54 +402,61 @@ function extractHints() {
 }
 
 function extractSelectedSquare() {
-  // Look for selected piece highlight - usually has a different style
-  // Chess.com may use various selectors for the selected piece
-  const selectors = [
-    '.piece.selected',
-    '.piece[class*="selected"]',
-    '.square-selected',
-    '[class*="selected"][class*="square-"]'
-  ];
+  // Build set of hint squares - these are legal move destinations
+  const hintSquares = new Set();
+  document.querySelectorAll('.hint[class*="square-"]').forEach(el => {
+    const classList = Array.from(el.classList);
+    for (const cls of classList) {
+      const match = cls.match(/^square-(\d)(\d)$/);
+      if (match) {
+        const file = String.fromCharCode(96 + parseInt(match[1]));
+        const rank = match[2];
+        hintSquares.add(file + rank);
+        break;
+      }
+    }
+  });
 
-  for (const selector of selectors) {
-    const el = document.querySelector(selector);
-    if (el) {
+  // If there are hints, there must be a selected piece - find it
+  if (hintSquares.size > 0) {
+    // Build a set of squares that have pieces on them
+    const pieceSquares = new Set();
+    document.querySelectorAll('.piece[class*="square-"]').forEach(el => {
       const classList = Array.from(el.classList);
       for (const cls of classList) {
         const match = cls.match(/^square-(\d)(\d)$/);
         if (match) {
           const file = String.fromCharCode(96 + parseInt(match[1]));
           const rank = match[2];
-          return file + rank;
+          pieceSquares.add(file + rank);
+          break;
         }
       }
-    }
-  }
+    });
 
-  // Also check for highlight with opacity 1 (selected piece highlight)
-  const highlights = document.querySelectorAll('.highlight[class*="square-"]');
-  for (const el of highlights) {
-    const inlineStyle = el.getAttribute('style') || '';
-    // Selected piece might have opacity 1 or no opacity specified
-    if (inlineStyle.includes('opacity: 1') || inlineStyle.includes('opacity:1') ||
-        (!inlineStyle.includes('opacity: 0.5') && !inlineStyle.includes('opacity: 0.8') &&
-         !inlineStyle.includes('opacity:0.5') && !inlineStyle.includes('opacity:0.8'))) {
+    // The selected square is a highlighted square that:
+    // 1. Has a piece on it
+    // 2. Is NOT a hint destination (hints are where the piece can move TO)
+    const highlights = document.querySelectorAll('.highlight[class*="square-"]');
 
-      // Check if it has a yellowish/selection color
-      const rgbMatch = inlineStyle.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      if (rgbMatch) {
-        const r = parseInt(rgbMatch[1]);
-        const g = parseInt(rgbMatch[2]);
-        // Selection highlight is usually yellow-ish
-        if (r > 200 && g > 180) {
-          const classList = Array.from(el.classList);
-          for (const cls of classList) {
-            const match = cls.match(/^square-(\d)(\d)$/);
-            if (match) {
-              const file = String.fromCharCode(96 + parseInt(match[1]));
-              const rank = match[2];
-              return file + rank;
-            }
+    for (const el of highlights) {
+      // Skip hint elements
+      if (el.classList.contains('hint')) continue;
+
+      const classList = Array.from(el.classList);
+      for (const cls of classList) {
+        const match = cls.match(/^square-(\d)(\d)$/);
+        if (match) {
+          const file = String.fromCharCode(96 + parseInt(match[1]));
+          const rank = match[2];
+          const square = file + rank;
+
+          // Skip if this is a hint destination
+          if (hintSquares.has(square)) continue;
+
+          // The selected square must have a piece on it
+          if (pieceSquares.has(square)) {
+            return square;
           }
         }
       }

@@ -57,6 +57,20 @@ body.minimal.players-overlay {
   color: #fff;
 }
 
+.player-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.player-flag {
+  width: 24px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
 .player-title {
   font-weight: bold;
   color: #f0c040;

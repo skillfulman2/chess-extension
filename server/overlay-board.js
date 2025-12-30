@@ -210,7 +210,7 @@ function createStraightArrow(x1, y1, x2, y2, color) {
   const angle = Math.atan2(dy, dx);
 
   const headLength = 35;
-  const headWidth = 30;
+  const headWidth = 40;
   const shaftWidth = 20;
   const shortenBy = 15;
   const effectiveLength = length - shortenBy;
@@ -242,6 +242,7 @@ function createStraightArrow(x1, y1, x2, y2, color) {
 
 function createKnightArrow(x1, y1, x2, y2, color) {
   const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  group.setAttribute('opacity', '0.6');
 
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -260,7 +261,7 @@ function createKnightArrow(x1, y1, x2, y2, color) {
 
   const shaftWidth = 20;
   const headLength = 30;
-  const headWidth = 28;
+  const headWidth = 38;
 
   const leg1Angle = Math.atan2(midY - y1, midX - x1);
   const leg1Length = Math.sqrt((midX - x1) ** 2 + (midY - y1) ** 2);
@@ -282,7 +283,6 @@ function createKnightArrow(x1, y1, x2, y2, color) {
     const leg1 = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     leg1.setAttribute('points', transformedLeg1.map(p => p.join(',')).join(' '));
     leg1.setAttribute('fill', color);
-    leg1.setAttribute('opacity', '0.6');
     group.appendChild(leg1);
   }
 
@@ -312,7 +312,6 @@ function createKnightArrow(x1, y1, x2, y2, color) {
     const leg2 = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
     leg2.setAttribute('points', transformedLeg2.map(p => p.join(',')).join(' '));
     leg2.setAttribute('fill', color);
-    leg2.setAttribute('opacity', '0.6');
     group.appendChild(leg2);
   }
 
@@ -320,12 +319,13 @@ function createKnightArrow(x1, y1, x2, y2, color) {
 }
 
 function getArrowColor(color) {
+  // Colors matched to Chess.com's arrow palette
   const colors = {
-    red: 'rgba(235, 64, 52, 0.9)',
-    green: 'rgba(50, 177, 100, 0.9)',
-    blue: 'rgba(52, 152, 219, 0.9)',
-    yellow: 'rgba(241, 196, 15, 0.9)',
-    orange: 'rgba(255, 170, 0, 0.9)'
+    red: 'rgb(218, 64, 79)',      // Shift+right-click
+    green: 'rgb(101, 168, 58)',   // Ctrl+right-click
+    blue: 'rgb(82, 176, 220)',    // Alt+right-click
+    yellow: 'rgb(241, 194, 50)',  // Ctrl+Shift+right-click
+    orange: 'rgb(255, 170, 0)'    // Default right-click
   };
   return colors[color] || colors.orange;
 }
