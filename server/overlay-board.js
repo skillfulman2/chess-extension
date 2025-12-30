@@ -1,7 +1,11 @@
-// Chess piece Unicode characters (using filled symbols for both colors)
-const PIECES = {
-  'K': '\u265A', 'Q': '\u265B', 'R': '\u265C', 'B': '\u265D', 'N': '\u265E', 'P': '\u265F',
-  'k': '\u265A', 'q': '\u265B', 'r': '\u265C', 'b': '\u265D', 'n': '\u265E', 'p': '\u265F'
+// Chess.com piece image URLs
+const PIECE_THEME = 'neo'; // Options: neo, neo_wood, classic, wood, glass, gothic, etc.
+const PIECE_BASE_URL = `https://images.chesscomfiles.com/chess-themes/pieces/${PIECE_THEME}/150`;
+
+// Map FEN notation to Chess.com piece image filenames
+const PIECE_IMAGES = {
+  'K': 'wk.png', 'Q': 'wq.png', 'R': 'wr.png', 'B': 'wb.png', 'N': 'wn.png', 'P': 'wp.png',
+  'k': 'bk.png', 'q': 'bq.png', 'r': 'br.png', 'b': 'bb.png', 'n': 'bn.png', 'p': 'bp.png'
 };
 
 const WHITE_PIECES = new Set(['K', 'Q', 'R', 'B', 'N', 'P']);
@@ -9,6 +13,19 @@ const SQUARE_SIZE = 120; // 960px / 8 = 120px per square
 
 let currentOrientation = 'white';
 let lastGameResult = null;
+
+// Track knights that have captured (pig knights!)
+let pigKnightSquare = null;
+let previousFen = null;
+let lastMoveStr = null;
+
+// Track piece positions for slide animation
+let previousPiecePositions = new Map(); // piece+square -> {row, col}
+
+// Oink sound for knight captures
+const oinkSound = new Audio('pig-oink.mp3');
+oinkSound.volume = 1.0;
+oinkSound.preload = 'auto';
 
 // Stockfish engine for evaluation
 let stockfish = null;
@@ -165,8 +182,80 @@ function connectWebSocket() {
 
 let lastAnalyzedFen = null;
 
+function parseFenToBoard(fen) {
+  if (!fen) return null;
+  const rows = fen.split(' ')[0].split('/');
+  const board = [];
+  for (const row of rows) {
+    const boardRow = [];
+    for (const char of row) {
+      if (/\d/.test(char)) {
+        for (let i = 0; i < parseInt(char); i++) {
+          boardRow.push(null);
+        }
+      } else {
+        boardRow.push(char);
+      }
+    }
+    board.push(boardRow);
+  }
+  return board;
+}
+
+function squareToIndices(square) {
+  const file = square.charCodeAt(0) - 97; // a=0, h=7
+  const rank = 8 - parseInt(square[1]);   // 8=0, 1=7
+  return { row: rank, col: file };
+}
+
+function detectKnightCaptures(fen, lastMove) {
+  if (!lastMove) {
+    previousFen = fen;
+    return;
+  }
+
+  const moveStr = lastMove.from + lastMove.to;
+
+  // Only process new moves
+  if (moveStr === lastMoveStr) return;
+
+  // Reset pig on any new move
+  pigKnightSquare = null;
+
+  // Parse boards
+  const currentBoard = parseFenToBoard(fen);
+  const prevBoard = parseFenToBoard(previousFen);
+
+  if (currentBoard && prevBoard) {
+    const to = squareToIndices(lastMove.to);
+
+    // What piece is now at the destination?
+    const pieceAtDest = currentBoard[to.row]?.[to.col];
+
+    // Was there a piece at destination before? (capture)
+    const capturedPiece = prevBoard[to.row]?.[to.col];
+
+    // Is it a knight that just moved there?
+    if ((pieceAtDest === 'N' || pieceAtDest === 'n') && capturedPiece) {
+      console.log('Knight capture detected!', lastMove.to, pieceAtDest, 'captured', capturedPiece);
+      pigKnightSquare = lastMove.to;
+
+      // Play oink
+      oinkSound.currentTime = 0;
+      oinkSound.play().catch(e => console.log('Audio error:', e));
+    }
+  }
+
+  lastMoveStr = moveStr;
+  previousFen = fen;
+}
+
 function updateBoard(state) {
   currentOrientation = state.orientation || 'white';
+
+  // Detect knight captures for pig mode
+  detectKnightCaptures(state.board, state.lastMove);
+
   renderBoard(state.board, state.lastMove, state.markedSquares, state.hints, state.selectedSquare);
   renderArrows(state.arrows);
 
@@ -241,7 +330,6 @@ function hideGameResultAnimation() {
 
 function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
   const boardEl = document.getElementById('board');
-  boardEl.innerHTML = '';
 
   // Build set of marked squares for quick lookup
   const markedMap = new Map();
@@ -289,17 +377,39 @@ function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
     ranks.reverse();
   }
 
+  // Build current piece positions map
+  const currentPiecePositions = new Map();
+
+  // Check if we need to rebuild the board (first render or structure change)
+  const needsRebuild = boardEl.children.length !== 64;
+
+  if (needsRebuild) {
+    boardEl.innerHTML = '';
+  }
+
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
-      const square = document.createElement('div');
-
       const actualRow = currentOrientation === 'white' ? row : 7 - row;
       const actualCol = currentOrientation === 'white' ? col : 7 - col;
-
-      const isLight = (actualRow + actualCol) % 2 === 0;
-      square.className = `square ${isLight ? 'light' : 'dark'}`;
-
       const squareName = files[col] + ranks[row];
+      const piece = board[actualRow]?.[actualCol];
+
+      let square;
+      if (needsRebuild) {
+        square = document.createElement('div');
+        const isLight = (actualRow + actualCol) % 2 === 0;
+        square.className = `square ${isLight ? 'light' : 'dark'}`;
+        square.dataset.square = squareName;
+        boardEl.appendChild(square);
+      } else {
+        square = boardEl.children[row * 8 + col];
+        // Clear previous state classes but keep base classes
+        square.className = square.className.replace(/\s*(selected|last-move|marked|king)\s*/g, ' ').trim();
+        // Remove old pieces and hints
+        square.querySelectorAll('.piece, .pig-knight, .hint-dot').forEach(el => el.remove());
+      }
+
+      // Apply square states
       if (squareName === selectedSquare) {
         square.classList.add('selected');
       } else if (lastMoveSquares.has(squareName)) {
@@ -316,21 +426,109 @@ function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
         square.appendChild(hintDot);
       }
 
-      const piece = board[actualRow]?.[actualCol];
-      if (piece && PIECES[piece]) {
-        const pieceSpan = document.createElement('span');
-        pieceSpan.className = 'piece ' + (WHITE_PIECES.has(piece) ? 'white-piece' : 'black-piece');
-        pieceSpan.textContent = PIECES[piece];
-        square.appendChild(pieceSpan);
+      // Track piece position
+      if (piece) {
+        currentPiecePositions.set(squareName, piece);
+      }
+    }
+  }
 
+  // Now render pieces with animation
+  renderPiecesWithAnimation(board, files, ranks, currentPiecePositions, lastMove);
+
+  // Update previous positions for next render
+  previousPiecePositions = currentPiecePositions;
+}
+
+function renderPiecesWithAnimation(board, files, ranks, currentPiecePositions, lastMove) {
+  const boardEl = document.getElementById('board');
+
+  // Get or create pieces container
+  let piecesContainer = document.getElementById('pieces-container');
+  if (!piecesContainer) {
+    piecesContainer = document.createElement('div');
+    piecesContainer.id = 'pieces-container';
+    piecesContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+    boardEl.style.position = 'relative';
+    boardEl.appendChild(piecesContainer);
+  }
+
+  // Clear old pieces
+  piecesContainer.innerHTML = '';
+
+  // Find the piece that moved (if any)
+  let fromPos = null;
+  let toPos = null;
+
+  if (lastMove) {
+    const piece = currentPiecePositions.get(lastMove.to);
+    if (piece && previousPiecePositions.has(lastMove.from)) {
+      const prevPiece = previousPiecePositions.get(lastMove.from);
+      // Check if same type of piece (accounting for promotion)
+      if (prevPiece && (prevPiece === piece || (prevPiece.toLowerCase() === 'p' && piece !== prevPiece))) {
+        fromPos = lastMove.from;
+        toPos = lastMove.to;
+      }
+    }
+  }
+
+  // Render each piece
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const actualRow = currentOrientation === 'white' ? row : 7 - row;
+      const actualCol = currentOrientation === 'white' ? col : 7 - col;
+      const squareName = files[col] + ranks[row];
+      const piece = board[actualRow]?.[actualCol];
+
+      if (piece && PIECE_IMAGES[piece]) {
+        const isPigKnight = (piece === 'N' || piece === 'n') && pigKnightSquare === squareName;
+        const isMovingPiece = squareName === toPos;
+
+        let pieceEl;
+        if (isPigKnight) {
+          pieceEl = document.createElement('span');
+          pieceEl.className = 'piece pig-knight animated-piece';
+          pieceEl.textContent = '🐷';
+        } else {
+          pieceEl = document.createElement('img');
+          pieceEl.className = 'piece animated-piece';
+          pieceEl.src = `${PIECE_BASE_URL}/${PIECE_IMAGES[piece]}`;
+          pieceEl.alt = piece;
+          pieceEl.draggable = false;
+        }
+
+        // Position the piece
+        const targetX = col * SQUARE_SIZE;
+        const targetY = row * SQUARE_SIZE;
+
+        if (isMovingPiece && fromPos) {
+          // Animate from old position to new position
+          const fromCol = files.indexOf(fromPos[0]);
+          const fromRow = ranks.indexOf(fromPos[1]);
+          const startX = fromCol * SQUARE_SIZE;
+          const startY = fromRow * SQUARE_SIZE;
+
+          pieceEl.style.cssText = `position:absolute;left:${startX}px;top:${startY}px;width:${SQUARE_SIZE}px;height:${SQUARE_SIZE}px;transition:left 0.15s ease-out,top 0.15s ease-out;`;
+
+          // Trigger animation after append
+          requestAnimationFrame(() => {
+            pieceEl.style.left = targetX + 'px';
+            pieceEl.style.top = targetY + 'px';
+          });
+        } else {
+          pieceEl.style.cssText = `position:absolute;left:${targetX}px;top:${targetY}px;width:${SQUARE_SIZE}px;height:${SQUARE_SIZE}px;`;
+        }
+
+        piecesContainer.appendChild(pieceEl);
+
+        // Add king class to square
         const isMyKing = (currentOrientation === 'white' && piece === 'K') ||
                          (currentOrientation === 'black' && piece === 'k');
         if (isMyKing) {
-          square.classList.add('king');
+          const square = boardEl.children[row * 8 + col];
+          if (square) square.classList.add('king');
         }
       }
-
-      boardEl.appendChild(square);
     }
   }
 }
