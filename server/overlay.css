@@ -1,0 +1,235 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+}
+
+/* Minimal mode for OBS - no viewport margins */
+body.minimal {
+  margin: 0;
+  padding: 0;
+}
+
+/* Players overlay fixed size */
+body.minimal.players-overlay {
+  width: 540px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#overlay {
+  display: inline-block;
+  padding: 10px;
+}
+
+#waiting {
+  color: #fff;
+  font-size: 24px;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#game-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 8px;
+  color: #fff;
+}
+
+.player-title {
+  font-weight: bold;
+  color: #f0c040;
+  font-size: 20px;
+}
+
+.player-name {
+  font-weight: 600;
+  font-size: 24px;
+  flex: 1;
+}
+
+.player-rating {
+  color: #aaa;
+  font-size: 20px;
+}
+
+.clock {
+  font-family: 'Courier New', monospace;
+  font-size: 28px;
+  font-weight: bold;
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  min-width: 100px;
+  text-align: center;
+}
+
+.clock.active {
+  background: rgba(76, 175, 80, 0.8);
+}
+
+.clock.low-time {
+  background: rgba(244, 67, 54, 0.8);
+}
+
+#board {
+  display: grid;
+  grid-template-columns: repeat(8, var(--square-size, 80px));
+  grid-template-rows: repeat(8, var(--square-size, 80px));
+  border: 3px solid rgba(0, 0, 0, 0.8);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.square {
+  width: var(--square-size, 80px);
+  height: var(--square-size, 80px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--piece-size, 60px);
+  user-select: none;
+}
+
+/* Large board for HD streaming (960px = half of 1920) */
+body.large-board {
+  --square-size: 120px;
+  --piece-size: 90px;
+  width: 960px;
+  height: 960px;
+}
+
+#players-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.square.light {
+  background: #f0d9b5;
+}
+
+.square.dark {
+  background: #b58863;
+}
+
+.square.last-move {
+  background: rgba(255, 255, 0, 0.4);
+}
+
+.square.light.last-move {
+  background: #cdd26a;
+}
+
+.square.dark.last-move {
+  background: #aaa23a;
+}
+
+.square.light.selected {
+  background: #f7f683;
+}
+
+.square.dark.selected {
+  background: #bbcc44;
+}
+
+.hint-dot {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 50%;
+  z-index: 1;
+}
+
+body.large-board .hint-dot {
+  width: 32px;
+  height: 32px;
+}
+
+.piece {
+  position: relative;
+  z-index: 2;
+}
+
+.piece.white-piece {
+  color: #fff;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+}
+
+.piece.black-piece {
+  color: #000;
+}
+
+.king {
+  position: relative;
+}
+
+/* Cowboy hat brim */
+.king::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50px;
+  height: 10px;
+  background: #8B4513;
+  border-radius: 50%;
+  z-index: 10;
+  box-shadow: 0 2px 2px rgba(0,0,0,0.3);
+}
+
+/* Cowboy hat crown */
+.king::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 16px;
+  background: #8B4513;
+  border-radius: 6px 6px 2px 2px;
+  z-index: 11;
+  box-shadow: 0 2px 2px rgba(0,0,0,0.2);
+}
+
+/* Marked squares */
+.marked {
+  position: relative;
+}
+
+.marked::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--mark-color);
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 1;
+}
