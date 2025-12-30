@@ -1,7 +1,11 @@
-// Chess piece Unicode characters (using filled symbols for both colors)
-const PIECES = {
-  'K': '\u265A', 'Q': '\u265B', 'R': '\u265C', 'B': '\u265D', 'N': '\u265E', 'P': '\u265F',
-  'k': '\u265A', 'q': '\u265B', 'r': '\u265C', 'b': '\u265D', 'n': '\u265E', 'p': '\u265F'
+// Chess.com piece image URLs
+const PIECE_THEME = 'neo'; // Options: neo, neo_wood, classic, wood, glass, gothic, etc.
+const PIECE_BASE_URL = `https://images.chesscomfiles.com/chess-themes/pieces/${PIECE_THEME}/150`;
+
+// Map FEN notation to Chess.com piece image filenames
+const PIECE_IMAGES = {
+  'K': 'wk.png', 'Q': 'wq.png', 'R': 'wr.png', 'B': 'wb.png', 'N': 'wn.png', 'P': 'wp.png',
+  'k': 'bk.png', 'q': 'bq.png', 'r': 'br.png', 'b': 'bb.png', 'n': 'bn.png', 'p': 'bp.png'
 };
 
 const WHITE_PIECES = new Set(['K', 'Q', 'R', 'B', 'N', 'P']);
@@ -10,13 +14,26 @@ const SQUARE_SIZE = 120; // 960px / 8 = 120px per square
 let currentOrientation = 'white';
 let lastGameResult = null;
 
+// Track knights that have captured (pig knights!)
+let pigKnightSquare = null;
+let previousFen = null;
+let lastMoveStr = null;
+
+
+// Oink sound for knight captures
+const oinkSound = new Audio('pig-oink.mp3');
+oinkSound.volume = 1.0;
+oinkSound.preload = 'auto';
+
 // Stockfish engine for evaluation
 let stockfish = null;
 let stockfishReady = false;
 let currentFen = null;
 let pendingFen = null;
 let isAnalyzing = false;
-let analysisDepth = 18; // Depth for analysis (higher = more accurate but slower)
+let analysisDepth = 22;
+let latestEval = null; // Store latest eval to apply on bestmove
+let analysisFen = null; // Track which position we're analyzing
 
 function initStockfish() {
   try {
@@ -29,26 +46,36 @@ function setupStockfishHandlers() {
   stockfish.onmessage = function(event) {
     const line = typeof event === 'string' ? event : event.data;
 
+    // Store eval scores as they come in (we'll use the last one)
     if (line.includes('score cp')) {
       const match = line.match(/score cp (-?\d+)/);
       if (match) {
         const cp = parseInt(match[1]);
-        const isBlackTurn = currentFen && currentFen.includes(' b ');
+        const isBlackTurn = analysisFen && analysisFen.includes(' b ');
         const normalizedCp = isBlackTurn ? -cp : cp;
-        updateEvalBar(normalizedCp / 100, null);
+        latestEval = { type: 'cp', value: normalizedCp / 100 };
+        // Update eval bar in real-time for responsiveness
+        updateEvalBar(latestEval.value, null);
       }
     } else if (line.includes('score mate')) {
       const match = line.match(/score mate (-?\d+)/);
       if (match) {
         let mateIn = parseInt(match[1]);
-        const isBlackTurn = currentFen && currentFen.includes(' b ');
+        const isBlackTurn = analysisFen && analysisFen.includes(' b ');
         if (isBlackTurn) mateIn = -mateIn;
+        latestEval = { type: 'mate', value: mateIn };
         updateEvalBar(null, mateIn);
       }
     }
 
     if (line.includes('bestmove')) {
       isAnalyzing = false;
+      // Check if there's a new position waiting
+      if (pendingFen && pendingFen !== analysisFen) {
+        const fen = pendingFen;
+        pendingFen = null;
+        analyzePosition(fen);
+      }
     }
 
     if (line.includes('readyok')) {
@@ -75,14 +102,20 @@ function analyzePosition(fen) {
     return;
   }
 
-  currentFen = fen;
-  stockfish.postMessage('stop');
+  // If already analyzing, queue this position
+  if (isAnalyzing) {
+    pendingFen = fen;
+    stockfish.postMessage('stop');
+    return;
+  }
 
-  setTimeout(() => {
-    stockfish.postMessage('position fen ' + fen);
-    stockfish.postMessage('go depth ' + analysisDepth);
-    isAnalyzing = true;
-  }, 50);
+  analysisFen = fen;
+  currentFen = fen;
+  latestEval = null;
+
+  stockfish.postMessage('position fen ' + fen);
+  stockfish.postMessage('go depth ' + analysisDepth);
+  isAnalyzing = true;
 }
 
 function updateEvalBar(evalScore, mateIn) {
@@ -165,8 +198,95 @@ function connectWebSocket() {
 
 let lastAnalyzedFen = null;
 
+function parseFenToBoard(fen) {
+  if (!fen) return null;
+  const rows = fen.split(' ')[0].split('/');
+  const board = [];
+  for (const row of rows) {
+    const boardRow = [];
+    for (const char of row) {
+      if (/\d/.test(char)) {
+        for (let i = 0; i < parseInt(char); i++) {
+          boardRow.push(null);
+        }
+      } else {
+        boardRow.push(char);
+      }
+    }
+    board.push(boardRow);
+  }
+  return board;
+}
+
+function squareToIndices(square) {
+  const file = square.charCodeAt(0) - 97; // a=0, h=7
+  const rank = 8 - parseInt(square[1]);   // 8=0, 1=7
+  return { row: rank, col: file };
+}
+
+function detectKnightCaptures(fen, lastMove) {
+  if (!lastMove || !lastMove.from || !lastMove.to) {
+    previousFen = fen;
+    return;
+  }
+
+  const moveStr = lastMove.from + lastMove.to;
+
+  // Only process new moves
+  if (moveStr === lastMoveStr) {
+    // Still update previousFen in case board changed
+    previousFen = fen;
+    return;
+  }
+
+  // Reset pig on any new move
+  pigKnightSquare = null;
+
+  // Parse boards
+  const currentBoard = parseFenToBoard(fen);
+  const prevBoard = parseFenToBoard(previousFen);
+
+  // Debug logging
+  console.log('Move detected:', moveStr, 'prevFen exists:', !!previousFen);
+
+  if (currentBoard && prevBoard) {
+    const to = squareToIndices(lastMove.to);
+
+    // What piece is now at the destination?
+    const pieceAtDest = currentBoard[to.row]?.[to.col];
+
+    // Was there a piece at destination before? (capture)
+    const capturedPiece = prevBoard[to.row]?.[to.col];
+
+    console.log('Piece at dest:', pieceAtDest, 'Captured:', capturedPiece, 'Orientation:', currentOrientation);
+
+    // Is it a knight that just moved there?
+    // Only trigger pig effect for the user's pieces (bottom player)
+    const isMyKnight = (currentOrientation === 'white' && pieceAtDest === 'N') ||
+                       (currentOrientation === 'black' && pieceAtDest === 'n');
+
+    if (isMyKnight && capturedPiece) {
+      console.log('PIG! Knight capture detected!', lastMove.to);
+      pigKnightSquare = lastMove.to;
+
+      // Play oink
+      oinkSound.currentTime = 0;
+      oinkSound.play().catch(e => console.log('Audio error:', e));
+    }
+  } else {
+    console.log('Missing board state - current:', !!currentBoard, 'prev:', !!prevBoard);
+  }
+
+  lastMoveStr = moveStr;
+  previousFen = fen;
+}
+
 function updateBoard(state) {
   currentOrientation = state.orientation || 'white';
+
+  // Detect knight captures for pig mode
+  detectKnightCaptures(state.board, state.lastMove);
+
   renderBoard(state.board, state.lastMove, state.markedSquares, state.hints, state.selectedSquare);
   renderArrows(state.arrows);
 
@@ -182,9 +302,9 @@ function updateBoard(state) {
 
   // Analyze position with Stockfish
   if (state.board && !state.gameResult) {
-    // Construct full FEN string
+    // Construct FEN string (use - for castling since we don't track it)
     const turn = state.turn === 'black' ? 'b' : 'w';
-    const fullFen = `${state.board} ${turn} KQkq - 0 1`;
+    const fullFen = `${state.board} ${turn} - - 0 1`;
 
     // Only analyze if position changed
     if (fullFen !== lastAnalyzedFen) {
@@ -242,6 +362,10 @@ function hideGameResultAnimation() {
 function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
   const boardEl = document.getElementById('board');
   boardEl.innerHTML = '';
+
+  // Remove pieces container if it exists
+  const piecesContainer = document.getElementById('pieces-container');
+  if (piecesContainer) piecesContainer.remove();
 
   // Build set of marked squares for quick lookup
   const markedMap = new Map();
@@ -309,6 +433,22 @@ function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
         square.style.setProperty('--mark-color', markedMap.get(squareName));
       }
 
+      // Add file letters on bottom row (right corner)
+      if (row === 7) {
+        const fileLabel = document.createElement('span');
+        fileLabel.className = 'coord coord-file';
+        fileLabel.textContent = files[col];
+        square.appendChild(fileLabel);
+      }
+
+      // Add rank numbers on left column (top left corner)
+      if (col === 0) {
+        const rankLabel = document.createElement('span');
+        rankLabel.className = 'coord coord-rank';
+        rankLabel.textContent = ranks[row];
+        square.appendChild(rankLabel);
+      }
+
       // Add hint dot for legal moves
       if (hintSet.has(squareName)) {
         const hintDot = document.createElement('span');
@@ -317,11 +457,23 @@ function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {
       }
 
       const piece = board[actualRow]?.[actualCol];
-      if (piece && PIECES[piece]) {
-        const pieceSpan = document.createElement('span');
-        pieceSpan.className = 'piece ' + (WHITE_PIECES.has(piece) ? 'white-piece' : 'black-piece');
-        pieceSpan.textContent = PIECES[piece];
-        square.appendChild(pieceSpan);
+      if (piece && PIECE_IMAGES[piece]) {
+        // Check if this knight just captured (show as pig briefly)
+        const isPigKnight = (piece === 'N' || piece === 'n') && pigKnightSquare === squareName;
+
+        if (isPigKnight) {
+          const pigSpan = document.createElement('span');
+          pigSpan.className = 'piece pig-knight';
+          pigSpan.textContent = '🐷';
+          square.appendChild(pigSpan);
+        } else {
+          const pieceImg = document.createElement('img');
+          pieceImg.className = 'piece';
+          pieceImg.src = `${PIECE_BASE_URL}/${PIECE_IMAGES[piece]}`;
+          pieceImg.alt = piece;
+          pieceImg.draggable = false;
+          square.appendChild(pieceImg);
+        }
 
         const isMyKing = (currentOrientation === 'white' && piece === 'K') ||
                          (currentOrientation === 'black' && piece === 'k');
