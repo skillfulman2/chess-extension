@@ -8,6 +8,134 @@ const WHITE_PIECES = new Set(['K', 'Q', 'R', 'B', 'N', 'P']);
 const SQUARE_SIZE = 120; // 960px / 8 = 120px per square
 
 let currentOrientation = 'white';
+let lastGameResult = null;
+
+// Stockfish engine for evaluation
+let stockfish = null;
+let stockfishReady = false;
+let currentFen = null;
+let pendingFen = null;
+let isAnalyzing = false;
+let analysisDepth = 18; // Depth for analysis (higher = more accurate but slower)
+
+function initStockfish() {
+  try {
+    stockfish = new Worker('stockfish.js');
+    setupStockfishHandlers();
+  } catch (e) {}
+}
+
+function setupStockfishHandlers() {
+  stockfish.onmessage = function(event) {
+    const line = typeof event === 'string' ? event : event.data;
+
+    if (line.includes('score cp')) {
+      const match = line.match(/score cp (-?\d+)/);
+      if (match) {
+        const cp = parseInt(match[1]);
+        const isBlackTurn = currentFen && currentFen.includes(' b ');
+        const normalizedCp = isBlackTurn ? -cp : cp;
+        updateEvalBar(normalizedCp / 100, null);
+      }
+    } else if (line.includes('score mate')) {
+      const match = line.match(/score mate (-?\d+)/);
+      if (match) {
+        let mateIn = parseInt(match[1]);
+        const isBlackTurn = currentFen && currentFen.includes(' b ');
+        if (isBlackTurn) mateIn = -mateIn;
+        updateEvalBar(null, mateIn);
+      }
+    }
+
+    if (line.includes('bestmove')) {
+      isAnalyzing = false;
+    }
+
+    if (line.includes('readyok')) {
+      stockfishReady = true;
+      if (pendingFen) {
+        const fen = pendingFen;
+        pendingFen = null;
+        analyzePosition(fen);
+      }
+    }
+  };
+
+  stockfish.postMessage('uci');
+  stockfish.postMessage('isready');
+  stockfish.postMessage('setoption name Threads value 1');
+  stockfish.postMessage('setoption name Hash value 128');
+}
+
+function analyzePosition(fen) {
+  if (!stockfish || !fen) return;
+
+  if (!stockfishReady) {
+    pendingFen = fen;
+    return;
+  }
+
+  currentFen = fen;
+  stockfish.postMessage('stop');
+
+  setTimeout(() => {
+    stockfish.postMessage('position fen ' + fen);
+    stockfish.postMessage('go depth ' + analysisDepth);
+    isAnalyzing = true;
+  }, 50);
+}
+
+function updateEvalBar(evalScore, mateIn) {
+  const whiteBar = document.getElementById('eval-bar-white');
+  const scoreDisplay = document.getElementById('eval-score');
+
+  if (!whiteBar || !scoreDisplay) return;
+
+  let percentage;
+  let displayText;
+
+  if (mateIn !== null) {
+    // Mate score
+    if (mateIn > 0) {
+      percentage = 100; // White winning
+      displayText = `M${mateIn}`;
+    } else {
+      percentage = 0; // Black winning
+      displayText = `M${Math.abs(mateIn)}`;
+    }
+    scoreDisplay.className = 'mate';
+  } else {
+    // Centipawn score - convert to percentage using sigmoid-like function
+    // This maps eval to a 0-100% scale where 0 = -5, 50 = 0, 100 = +5
+    const clampedEval = Math.max(-10, Math.min(10, evalScore));
+    percentage = 50 + (50 * (2 / (1 + Math.exp(-clampedEval * 0.5)) - 1));
+
+    // Format display
+    const absEval = Math.abs(evalScore).toFixed(1);
+    displayText = evalScore >= 0 ? `+${absEval}` : `-${absEval}`;
+
+    // Color based on who's winning
+    if (evalScore > 0.5) {
+      scoreDisplay.className = 'winning-white';
+    } else if (evalScore < -0.5) {
+      scoreDisplay.className = 'winning-black';
+    } else {
+      scoreDisplay.className = '';
+    }
+  }
+
+  // Update the bar - if board is flipped (black orientation), invert the bar
+  if (currentOrientation === 'black') {
+    whiteBar.style.height = (100 - percentage) + '%';
+  } else {
+    whiteBar.style.height = percentage + '%';
+  }
+
+  scoreDisplay.textContent = displayText;
+}
+
+// Initialize Stockfish when page loads
+document.addEventListener('DOMContentLoaded', initStockfish);
 
 function connectWebSocket() {
   const ws = new WebSocket(`ws://${window.location.host}`);
@@ -35,10 +163,80 @@ function connectWebSocket() {
   };
 }
 
+let lastAnalyzedFen = null;
+
 function updateBoard(state) {
   currentOrientation = state.orientation || 'white';
   renderBoard(state.board, state.lastMove, state.markedSquares, state.hints, state.selectedSquare);
   renderArrows(state.arrows);
+
+  // Handle game result animation
+  if (state.gameResult && state.gameResult !== lastGameResult) {
+    lastGameResult = state.gameResult;
+    showGameResultAnimation(state.gameResult);
+  } else if (!state.gameResult && lastGameResult) {
+    // Game result cleared (new game started)
+    lastGameResult = null;
+    hideGameResultAnimation();
+  }
+
+  // Analyze position with Stockfish
+  if (state.board && !state.gameResult) {
+    // Construct full FEN string
+    const turn = state.turn === 'black' ? 'b' : 'w';
+    const fullFen = `${state.board} ${turn} KQkq - 0 1`;
+
+    // Only analyze if position changed
+    if (fullFen !== lastAnalyzedFen) {
+      lastAnalyzedFen = fullFen;
+      analyzePosition(fullFen);
+    }
+  }
+}
+
+function showGameResultAnimation(result) {
+  // Remove any existing overlay
+  hideGameResultAnimation();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'game-result-overlay';
+  overlay.className = `game-result-${result}`;
+
+  const text = document.createElement('div');
+  text.className = 'game-result-text';
+
+  const icon = document.createElement('div');
+  icon.className = 'game-result-icon';
+
+  if (result === 'win') {
+    text.textContent = 'VICTORY';
+    icon.textContent = '👑';
+  } else if (result === 'loss') {
+    text.textContent = 'DEFEAT';
+    icon.textContent = '💀';
+  } else if (result === 'draw') {
+    text.textContent = 'DRAW';
+    icon.textContent = '🤝';
+  }
+
+  overlay.appendChild(icon);
+  overlay.appendChild(text);
+
+  const boardEl = document.getElementById('board');
+  boardEl.style.position = 'relative';
+  boardEl.appendChild(overlay);
+
+  // Trigger animation
+  requestAnimationFrame(() => {
+    overlay.classList.add('show');
+  });
+}
+
+function hideGameResultAnimation() {
+  const existing = document.getElementById('game-result-overlay');
+  if (existing) {
+    existing.remove();
+  }
 }
 
 function renderBoard(fen, lastMove, markedSquares, hints, selectedSquare) {

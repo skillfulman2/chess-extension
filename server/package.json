@@ -7,6 +7,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "stockfish": "^17.1.0",
     "ws": "^8.16.0"
   }
 }
