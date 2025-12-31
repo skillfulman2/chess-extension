@@ -269,44 +269,28 @@ function extractOrientation() {
 }
 
 function extractGameResult() {
-  // Check for game-over modal
-  const gameOverModal = document.querySelector('.game-over-modal-content, .board-modal-container-container');
-  if (!gameOverModal) return null;
+  // Find the title directly - more reliable
+  const title = document.querySelector('.game-over-header-component .header-title-component, .board-modal-container-container .header-title-component');
+  if (!title) return null;
 
-  // Check header class for result
-  const header = gameOverModal.querySelector('.game-over-header-component');
-  if (header) {
-    // Draw check first
-    if (header.classList.contains('game-over-header-draw')) {
-      return 'draw';
-    }
+  const text = title.textContent?.trim() || '';
+  const textLower = text.toLowerCase();
+
+  // Check for win
+  if (textLower.includes('you won')) {
+    return 'win';
   }
 
-  // Check title text - "[PlayerName] Won" or draw variants
-  const title = gameOverModal.querySelector('.header-title-component');
-  if (title) {
-    const text = title.textContent?.trim() || '';
-    const textLower = text.toLowerCase();
+  // Check for loss - "[OpponentName] Won"
+  if (textLower.includes(' won')) {
+    return 'loss';
+  }
 
-    // Draw checks
-    if (textLower.includes('draw') || textLower.includes('stalemate') ||
-        textLower.includes('repetition') || textLower.includes('insufficient') ||
-        textLower.includes('agreement') || textLower.includes('timeout vs')) {
-      return 'draw';
-    }
-
-    // Check if someone won - format is "[Name] Won"
-    if (textLower.includes(' won')) {
-      // Get my username from bottom player
-      const myNameEl = document.querySelector('#board-layout-player-bottom .cc-user-username-component, #board-layout-player-bottom .user-username-component');
-      const myName = myNameEl?.textContent?.trim().toLowerCase();
-
-      if (myName) {
-        // Extract winner name from "[Name] Won"
-        const winnerName = text.replace(/ won$/i, '').trim().toLowerCase();
-        return winnerName === myName ? 'win' : 'loss';
-      }
-    }
+  // Check for draw - "Draw" or any draw variant
+  if (textLower === 'draw' || textLower.includes('stalemate') ||
+      textLower.includes('repetition') || textLower.includes('insufficient') ||
+      textLower.includes('agreement') || textLower.includes('timeout vs')) {
+    return 'draw';
   }
 
   return null;

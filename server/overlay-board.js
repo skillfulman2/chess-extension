@@ -157,12 +157,9 @@ function updateEvalBar(evalScore, mateIn) {
     }
   }
 
-  // Update the bar - if board is flipped (black orientation), invert the bar
-  if (currentOrientation === 'black') {
-    whiteBar.style.height = (100 - percentage) + '%';
-  } else {
-    whiteBar.style.height = percentage + '%';
-  }
+  // Update the bar - score is already normalized to white's perspective
+  // Positive = white winning, negative = black winning
+  whiteBar.style.height = percentage + '%';
 
   scoreDisplay.textContent = displayText;
 }
