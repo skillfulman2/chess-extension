@@ -221,6 +221,38 @@ function squareToIndices(square) {
   return { row: rank, col: file };
 }
 
+function resetGameState() {
+  // Reset pig detection state
+  pigKnightSquare = null;
+  previousFen = null;
+  lastMoveStr = null;
+
+  // Reset Stockfish state
+  lastAnalyzedFen = null;
+  latestEval = null;
+  analysisFen = null;
+  if (stockfish && isAnalyzing) {
+    stockfish.postMessage('stop');
+    isAnalyzing = false;
+  }
+  pendingFen = null;
+
+  // Reset game result
+  lastGameResult = null;
+  hideGameResultAnimation();
+
+  // Reset eval bar to neutral
+  const whiteBar = document.getElementById('eval-bar-white');
+  const scoreDisplay = document.getElementById('eval-score');
+  if (whiteBar) whiteBar.style.height = '50%';
+  if (scoreDisplay) {
+    scoreDisplay.textContent = '0.0';
+    scoreDisplay.className = '';
+  }
+
+  console.log('Game state reset');
+}
+
 function detectKnightCaptures(fen, lastMove) {
   if (!lastMove || !lastMove.from || !lastMove.to) {
     previousFen = fen;
@@ -280,6 +312,11 @@ function detectKnightCaptures(fen, lastMove) {
 
 function updateBoard(state) {
   currentOrientation = state.orientation || 'white';
+
+  // Reset state on new game
+  if (state.isNewGame) {
+    resetGameState();
+  }
 
   // Detect knight captures for pig mode
   detectKnightCaptures(state.board, state.lastMove);
