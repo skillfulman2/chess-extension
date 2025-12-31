@@ -5,6 +5,8 @@ let lastState = null;
 let cachedLastMove = null;
 let cachedBoard = null;
 
+const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+
 // Map Chess.com piece classes to FEN notation
 const PIECE_MAP = {
   'wp': 'P', 'wn': 'N', 'wb': 'B', 'wr': 'R', 'wq': 'Q', 'wk': 'K',
@@ -14,6 +16,14 @@ const PIECE_MAP = {
 function extractGameState() {
   try {
     const board = extractBoard();
+
+    // Detect new game - reset state when board is starting position
+    const isNewGame = board === STARTING_FEN;
+    if (isNewGame && cachedBoard !== STARTING_FEN) {
+      // New game started - reset cached state
+      cachedLastMove = null;
+      console.log('[Chess Overlay] New game detected - resetting state');
+    }
 
     // Only update lastMove when the board position changes (actual move made)
     if (board !== cachedBoard) {
@@ -35,7 +45,8 @@ function extractGameState() {
       markedSquares: extractMarkedSquares(),
       hints: extractHints(),
       selectedSquare: extractSelectedSquare(),
-      gameResult: extractGameResult()
+      gameResult: extractGameResult(),
+      isNewGame: isNewGame
     };
 
     // Only send if state changed
