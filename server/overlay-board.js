@@ -13,6 +13,7 @@ const SQUARE_SIZE = 120; // 960px / 8 = 120px per square
 
 let currentOrientation = 'white';
 let lastGameResult = null;
+let hasResetForNewGame = false; // Track if we've already reset for the current new game
 
 // Track knights that have captured (pig knights!)
 let pigKnightSquare = null;
@@ -39,7 +40,10 @@ function initStockfish() {
   try {
     stockfish = new Worker('stockfish.js');
     setupStockfishHandlers();
-  } catch (e) {}
+    console.log('Stockfish worker created');
+  } catch (e) {
+    console.error('Failed to create Stockfish worker:', e);
+  }
 }
 
 function setupStockfishHandlers() {
@@ -80,6 +84,7 @@ function setupStockfishHandlers() {
 
     if (line.includes('readyok')) {
       stockfishReady = true;
+      console.log('Stockfish ready');
       if (pendingFen) {
         const fen = pendingFen;
         pendingFen = null;
@@ -95,9 +100,13 @@ function setupStockfishHandlers() {
 }
 
 function analyzePosition(fen) {
-  if (!stockfish || !fen) return;
+  if (!stockfish || !fen) {
+    console.log('analyzePosition skipped: stockfish=', !!stockfish, 'fen=', !!fen);
+    return;
+  }
 
   if (!stockfishReady) {
+    console.log('Stockfish not ready, queuing position');
     pendingFen = fen;
     return;
   }
@@ -122,7 +131,11 @@ function updateEvalBar(evalScore, mateIn) {
   const whiteBar = document.getElementById('eval-bar-white');
   const scoreDisplay = document.getElementById('eval-score');
 
-  if (!whiteBar || !scoreDisplay) return;
+  if (!whiteBar || !scoreDisplay) {
+    console.log('Eval bar elements not found');
+    return;
+  }
+
 
   let percentage;
   let displayText;
@@ -275,9 +288,6 @@ function detectKnightCaptures(fen, lastMove) {
   const currentBoard = parseFenToBoard(fen);
   const prevBoard = parseFenToBoard(previousFen);
 
-  // Debug logging
-  console.log('Move detected:', moveStr, 'prevFen exists:', !!previousFen);
-
   if (currentBoard && prevBoard) {
     const to = squareToIndices(lastMove.to);
 
@@ -286,8 +296,6 @@ function detectKnightCaptures(fen, lastMove) {
 
     // Was there a piece at destination before? (capture)
     const capturedPiece = prevBoard[to.row]?.[to.col];
-
-    console.log('Piece at dest:', pieceAtDest, 'Captured:', capturedPiece, 'Orientation:', currentOrientation);
 
     // Is it a knight that just moved there?
     // Only trigger pig effect for the user's pieces (bottom player)
@@ -313,9 +321,15 @@ function detectKnightCaptures(fen, lastMove) {
 function updateBoard(state) {
   currentOrientation = state.orientation || 'white';
 
-  // Reset state on new game
+  // Reset state on new game (but only once per new game)
   if (state.isNewGame) {
-    resetGameState();
+    if (!hasResetForNewGame) {
+      resetGameState();
+      hasResetForNewGame = true;
+    }
+  } else {
+    // Position changed from starting position, allow reset on next new game
+    hasResetForNewGame = false;
   }
 
   // Detect knight captures for pig mode
@@ -335,7 +349,9 @@ function updateBoard(state) {
   }
 
   // Analyze position with Stockfish
-  if (state.board && !state.gameResult) {
+  // Always analyze on new game (even if old game result modal is still visible)
+  // Otherwise only analyze when there's no game result
+  if (state.board && (!state.gameResult || state.isNewGame)) {
     // Construct FEN string (use - for castling since we don't track it)
     const turn = state.turn === 'black' ? 'b' : 'w';
     const fullFen = `${state.board} ${turn} - - 0 1`;
