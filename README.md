@@ -1,6 +1,6 @@
 # Chess.com OBS Overlay
 
-A Chrome extension that extracts live game data from Chess.com and streams it to an OBS overlay via WebSocket.
+A Chrome extension that extracts live game data from Chess.com and streams it to an OBS overlay via WebSocket. Checkout my [Youtube channel](https://www.youtube.com/@TheChessFarm) to see it in action!
 
 ## Setup
 
