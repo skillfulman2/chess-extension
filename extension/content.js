@@ -138,8 +138,12 @@ function extractPlayers() {
   const orientation = extractOrientation();
 
   // Bottom player is always YOU, top player is always OPPONENT
-  const bottomCard = document.querySelector('#board-layout-player-bottom .player-component');
-  const topCard = document.querySelector('#board-layout-player-top .player-component');
+  const bottomCard = document.querySelector('#board-layout-player-bottom .player-component') ||
+                     document.querySelector('#board-layout-player-bottom .player-playerContent') ||
+                     document.querySelector('#board-layout-player-bottom');
+  const topCard = document.querySelector('#board-layout-player-top .player-component') ||
+                  document.querySelector('#board-layout-player-top .player-playerContent') ||
+                  document.querySelector('#board-layout-player-top');
 
   if (bottomCard) {
     const playerInfo = extractPlayerInfo(bottomCard);
