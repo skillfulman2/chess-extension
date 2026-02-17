@@ -7,6 +7,16 @@ let cachedBoard = null;
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
 
+// Map Chess.com captured piece names to short codes
+const CAPTURED_PIECE_NAME_MAP = {
+  'pawn': 'p',
+  'knight': 'n',
+  'bishop': 'b',
+  'rook': 'r',
+  'queen': 'q',
+  'king': 'k'
+};
+
 // Map Chess.com piece classes to FEN notation
 const PIECE_MAP = {
   'wp': 'P', 'wn': 'N', 'wb': 'B', 'wr': 'R', 'wq': 'Q', 'wk': 'K',
@@ -46,6 +56,8 @@ function extractGameState() {
       hints: extractHints(),
       selectedSquare: extractSelectedSquare(),
       gameResult: extractGameResult(),
+      capturedPieces: extractCapturedPieces(),
+      moveList: extractMoveList(),
       isNewGame: isNewGame
     };
 
@@ -510,6 +522,118 @@ function extractSelectedSquare() {
   return null;
 }
 
+function extractMoveList() {
+  const moves = [];
+
+  const rows = document.querySelectorAll('.main-line-row.move-list-row');
+  if (rows.length === 0) return moves;
+
+  // Take all rows, we'll slice the last 5 on the overlay side
+  rows.forEach(row => {
+    const moveNumber = row.getAttribute('data-whole-move-number');
+    if (!moveNumber) return;
+
+    const whiteNode = row.querySelector('.white-move .node-highlight-content');
+    const blackNode = row.querySelector('.black-move .node-highlight-content');
+
+    const move = { number: parseInt(moveNumber), white: null, black: null };
+
+    if (whiteNode) {
+      move.white = parseMoveNode(whiteNode);
+    }
+    if (blackNode) {
+      move.black = parseMoveNode(blackNode);
+    }
+
+    moves.push(move);
+  });
+
+  return moves.slice(-15);
+}
+
+function parseMoveNode(node) {
+  const figurine = node.querySelector('[data-figurine]');
+  const piece = figurine ? figurine.getAttribute('data-figurine') : '';
+  const isSelected = node.classList.contains('selected');
+
+  // Get only the text content that isn't inside the figurine span
+  let moveText = '';
+  node.childNodes.forEach(child => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      moveText += child.textContent;
+    } else if (!child.hasAttribute?.('data-figurine')) {
+      moveText += child.textContent;
+    }
+  });
+  moveText = moveText.trim();
+
+  return { text: piece + moveText, selected: isSelected };
+}
+
+function extractCapturedPieces() {
+  const captured = {
+    white: { pieces: [], score: '' },
+    black: { pieces: [], score: '' }
+  };
+  const orientation = extractOrientation();
+
+  const bottomContainer = document.querySelector('#board-layout-player-bottom');
+  const topContainer = document.querySelector('#board-layout-player-top');
+
+  if (bottomContainer) {
+    captured[orientation] = parseCapturedPiecesFromContainer(bottomContainer);
+  }
+  if (topContainer) {
+    const opponentColor = orientation === 'white' ? 'black' : 'white';
+    captured[opponentColor] = parseCapturedPiecesFromContainer(topContainer);
+  }
+
+  return captured;
+}
+
+function parseCapturedPiecesFromContainer(container) {
+  const pieces = [];
+  let score = '';
+
+  // Support both old (.captured-pieces) and new (wc-captured-pieces) Chess.com DOM
+  const capturedDiv = container.querySelector('wc-captured-pieces, .captured-pieces');
+  if (!capturedDiv) return { pieces, score };
+
+  capturedDiv.querySelectorAll('.captured-pieces-cpiece').forEach(el => {
+    if (el.classList.contains('captured-pieces-score')) {
+      score = el.textContent?.trim() || '';
+      return;
+    }
+
+    const classList = Array.from(el.classList);
+    for (const cls of classList) {
+      // Format with count: captured-pieces-w-3-pawns
+      let match = cls.match(/^captured-pieces-([wb])-(\d+)-(pawns|knights|bishops|rooks|queens|kings)$/);
+      if (match) {
+        const color = match[1];
+        const count = parseInt(match[2]);
+        const pieceName = match[3].replace(/s$/, '');
+        const pieceCode = color + CAPTURED_PIECE_NAME_MAP[pieceName];
+        for (let i = 0; i < count; i++) {
+          pieces.push(pieceCode);
+        }
+        break;
+      }
+
+      // Format without count: captured-pieces-w-bishop or captured-pieces-b-pawn
+      match = cls.match(/^captured-pieces-([wb])-(pawn|knight|bishop|rook|queen|king)$/);
+      if (match) {
+        const color = match[1];
+        const pieceCode = color + CAPTURED_PIECE_NAME_MAP[match[2]];
+        pieces.push(pieceCode);
+        break;
+      }
+    }
+  });
+
+  return { pieces, score };
+}
+
 // Set up observers
 function initialize() {
   console.log('[Chess Overlay] Initializing...');
@@ -588,6 +712,32 @@ function initialize() {
       });
       if (clocks.length > 0) {
         console.log('[Chess Overlay] Clock observers attached');
+      }
+
+      // Observe player areas for captured pieces changes
+      const playerObserver = new MutationObserver(debouncedUpdate);
+      const playerAreas = document.querySelectorAll('#board-layout-player-bottom, #board-layout-player-top');
+      playerAreas.forEach(area => {
+        playerObserver.observe(area, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      });
+      if (playerAreas.length > 0) {
+        console.log('[Chess Overlay] Player area observers attached');
+      }
+
+      // Observe move list for new moves
+      const moveListObserver = new MutationObserver(debouncedUpdate);
+      const moveList = document.querySelector('wc-simple-move-list, .move-list');
+      if (moveList) {
+        moveListObserver.observe(moveList, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+        console.log('[Chess Overlay] Move list observer attached');
       }
 
       // Initial extraction

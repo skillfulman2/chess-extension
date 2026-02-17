@@ -1,5 +1,13 @@
 let currentOrientation = 'white';
 
+// Chess.com piece images for captured pieces display
+const PIECE_THEME = 'neo';
+const PIECE_BASE_URL = `https://images.chesscomfiles.com/chess-themes/pieces/${PIECE_THEME}/150`;
+const CAPTURED_PIECE_IMAGES = {
+  'wp': 'wp.png', 'wn': 'wn.png', 'wb': 'wb.png', 'wr': 'wr.png', 'wq': 'wq.png', 'wk': 'wk.png',
+  'bp': 'bp.png', 'bn': 'bn.png', 'bb': 'bb.png', 'br': 'br.png', 'bq': 'bq.png', 'bk': 'bk.png'
+};
+
 // Chess.com numeric country codes to ISO 2-letter codes
 const COUNTRY_CODE_MAP = {
   '1': 'af', // Afghanistan
@@ -241,6 +249,9 @@ function updatePlayers(state) {
 
   updatePlayerInfo('top', topPlayer, state.clocks?.[topColor], state.turn === topColor);
   updatePlayerInfo('bottom', bottomPlayer, state.clocks?.[bottomColor], state.turn === bottomColor);
+
+  updateCapturedPieces('top', state.capturedPieces?.[topColor]);
+  updateCapturedPieces('bottom', state.capturedPieces?.[bottomColor]);
 }
 
 function updatePlayerInfo(position, player, clockSeconds, isActive) {
@@ -291,6 +302,30 @@ function updatePlayerInfo(position, player, clockSeconds, isActive) {
     clockEl.textContent = '--:--';
     clockEl.classList.remove('active', 'low-time');
   }
+}
+
+function updateCapturedPieces(position, capturedData) {
+  const container = document.getElementById(`${position}-captured`);
+  if (!container) return;
+
+  if (!capturedData || capturedData.pieces.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+  for (const piece of capturedData.pieces) {
+    const imgFile = CAPTURED_PIECE_IMAGES[piece];
+    if (imgFile) {
+      html += `<img class="captured-piece-img" src="${PIECE_BASE_URL}/${imgFile}" alt="${piece}">`;
+    }
+  }
+
+  if (capturedData.score) {
+    html += `<span class="captured-score">${capturedData.score}</span>`;
+  }
+
+  container.innerHTML = html;
 }
 
 function formatTime(seconds) {

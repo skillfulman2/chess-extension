@@ -84,4 +84,5 @@ server.listen(PORT, () => {
   console.log('OBS Browser Source URLs:');
   console.log('  Board:     http://localhost:' + PORT + '/overlay-board.html  (960x960)');
   console.log('  Players:   http://localhost:' + PORT + '/overlay-players.html');
+  console.log('  Moves:     http://localhost:' + PORT + '/overlay-moves.html');
 });

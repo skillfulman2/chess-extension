@@ -62,6 +62,21 @@ body.minimal.players-overlay {
   height: 40px;
   border-radius: 4px;
   object-fit: cover;
+  align-self: center;
+}
+
+.player-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.player-top-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .player-flag {
@@ -81,11 +96,35 @@ body.minimal.players-overlay {
   font-weight: 600;
   font-size: 24px;
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .player-rating {
   color: #aaa;
   font-size: 20px;
+}
+
+/* Captured pieces display */
+.captured-pieces {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.captured-piece-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.captured-score {
+  font-size: 14px;
+  font-weight: bold;
+  color: #aaa;
+  margin-left: 4px;
 }
 
 .clock {
@@ -432,4 +471,49 @@ body.large-board .pig-knight {
 #eval-score.mate {
   background: rgba(220, 50, 50, 0.95);
   color: #fff;
+}
+
+/* Moves overlay */
+body.minimal.moves-overlay {
+  width: 140px;
+}
+
+#move-list {
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.85);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.move-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 1fr;
+  align-items: center;
+  padding: 3px 6px;
+  font-size: 13px;
+  color: #fff;
+}
+
+.move-row-light {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.move-row-dark {
+  background: transparent;
+}
+
+.move-number {
+  color: #666;
+  font-size: 11px;
+}
+
+.move-white,
+.move-black {
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.move-selected {
+  background: rgba(76, 175, 80, 0.5);
 }
